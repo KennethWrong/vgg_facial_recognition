@@ -25,5 +25,3 @@ for i, name in enumerate(labels):
 
 names = train_labels_df['Category'].values.tolist()
 names = [labels_name_to_index[n] for n in names]
-print(names)
-
