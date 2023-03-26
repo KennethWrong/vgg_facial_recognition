@@ -2,59 +2,73 @@ import os
 import torch
 import torchvision as tv
 from torchvision.io import read_image
-import glob
-import re
-from PIL import Image
+from PIL import Image, ImageFile
 import pandas as pd
+from torch.utils.data import Dataset
+from torchvision import datasets
 
-class ImageDataset:
-    def __init__(self):
-        self.images = []
-        self.labels = []
-        self.preprocess_layer = tv.transforms.Compose([
-            tv.transforms.Resize(256),
-            tv.transforms.CenterCrop(224),
-            tv.transforms.ToTensor(),
-            tv.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+class ImageDataset(Dataset):
+    def __init__(self, img_dir, transform=None, target_transform=None):
+        self.img_dir = img_dir
+        self.img_labels = self.load_training_labels()
+        self.transform = transform
         self.labels_n_to_i_dic = {}
         self.labels_i_to_n_dic = {}
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.target_transform = target_transform
+        # self.device = "cuda" if torch.cuda.is_available() else "cpu"
     
     # 1. we got to load the images from .jpg to PIL image or np.array
-    def load_dataset(self, path):
-        cwd = os.path.dirname(os.path.realpath(__file__))
+    def load_image(self, index):
+        image_path = os.path.join(self.img_dir, f"{str(index)}.jpg")
 
-        train_data_path = os.path.join(cwd, "data", "train")
+        # print(f"Image index: {index}")
+        # image = cv2.imread(image_path)
+        # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = Image.open(image_path)
+        # image.point(lambda p: p*0.0039063096, mode='RGB')
+        image = image.convert('RGB')
+        
 
-        def generate_index(x):
-            res = re.search(r".*\/([0-9]+).jpg", x)
-            value = int(res.groups()[0])
-            return value
+        transform = tv.transforms.PILToTensor()
+        image = transform(image)
 
-        for images in sorted(glob.glob(os.path.join(train_data_path, "*")), key= lambda x: generate_index(x)):
-            image = Image.open(images)
-            self.images.append(image)
+        return image
     
-    def load_training_labels(self, path):
+    def load_training_labels(self, path=""):
         cwd = os.path.dirname(os.path.realpath(__file__))
         train_labels_path = os.path.join(cwd, "data", "train.csv")
         train_labels_df = pd.read_csv(train_labels_path)
         names = train_labels_df['Category'].values.tolist()
-        names = [self.labels_name_to_index[n] for n in names]
-        labels = torch.Tensor(names)
-        self.labels = labels
-        return labels
+        mapping = self.load_categories()
+        names = [mapping[n] for n in names]
+        return names
     
-    def load_categories(self, path):
+    def load_categories(self, path=""):
         cwd = os.path.dirname(os.path.realpath(__file__))
         labels_path = os.path.join(cwd, "data", "category.csv")
         labels_df = pd.read_csv(labels_path)
         labels = labels_df['Category'].values.tolist()
 
-        for i, name in enumerate(labels):
-            self.labels_n_to_i[name] = i
-            self.labels_i_to_n[i] = name
-    
-    # def preprocess_images(self):
+        category_mapping = {}
 
+        for i, name in enumerate(labels):
+            category_mapping[name] = i
+            # self.labels_i_to_n_dic[i] = name
+        
+        return category_mapping
+    
+    def __len__(self):
+        return len(self.img_labels)
+    
+    def __getitem__(self, idx):
+        image = self.load_image(idx)
+        
+        target = self.img_labels[idx]
+        if self.transform:
+            image = self.transform(image)
+        if self.target_transform:
+            target = self.target_transform(target)
+        
+        return image, target
