@@ -11,6 +11,7 @@ def train_step(model: torch.nn.Module,
                loss_fn: torch.nn.Module, 
                optimizer: torch.optim.Optimizer,
                device: torch.device,
+               epoch: int,
                 ) -> Tuple[float, float]:
     """Trains a PyTorch model for a single epoch.
     Turns a target PyTorch model to training mode and then
@@ -35,8 +36,16 @@ def train_step(model: torch.nn.Module,
 
     # Loop through data loader data batches
     for batch, (X, y) in enumerate(dataloader):
+        # if (batch < int(47200 / 16)):
+        #   if batch % 50 == 0:
+        #     print(batch)
+        #   continue
+
         # Send data to target device
         X, y = X.to(device), y.to(device)
+        
+        # 3. Optimizer zero grad
+        optimizer.zero_grad()
 
         # 1. Forward pass
         y_pred = model(X)
@@ -45,8 +54,6 @@ def train_step(model: torch.nn.Module,
         loss = loss_fn(y_pred, y)
         train_loss += loss.item() 
 
-        # 3. Optimizer zero grad
-        optimizer.zero_grad()
 
         # 4. Loss backward
         loss.backward()
@@ -56,11 +63,13 @@ def train_step(model: torch.nn.Module,
 
         # Calculate and accumulate accuracy metric across all batches
         y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
-        print(y_pred_class, y)
-        train_acc += (y_pred_class == y).sum().item()/len(y_pred)
+        y_class = torch.argmax(torch.softmax(y, dim=1), dim=1)
+
+        curr_train_acc = (y_pred_class == y_class).sum().item()/len(y_pred)
+        train_acc += curr_train_acc
 
         if (batch % 50 == 0):
-            print(f"Batch Idx: {batch} train_acc: {train_acc / (batch + 1)} train_loss: {train_loss / (batch + 1)}")
+            print(f"Epoch: {epoch} [{batch*len(y_pred_class)}/{len(dataloader)*len(y_pred_class)}] train_acc: {curr_train_acc / len(y_pred_class)} total_train_acc: {train_acc / (batch*len(y_pred_class) + 1)} train_loss: {train_loss / (batch*len(y_pred_class) + 1)} ")
 
     # Adjust metrics to get average loss and accuracy per batch 
     train_loss = train_loss / len(dataloader)
@@ -70,7 +79,8 @@ def train_step(model: torch.nn.Module,
 def test_step(model: torch.nn.Module, 
               dataloader: torch.utils.data.DataLoader, 
               loss_fn: torch.nn.Module,
-              device: torch.device) -> Tuple[float, float]:
+              device: torch.device,
+              epoch: int) -> Tuple[float, float]:
     """Tests a PyTorch model for a single epoch.
     Turns a target PyTorch model to "eval" mode and then performs
     a forward pass on a testing dataset.
@@ -78,7 +88,7 @@ def test_step(model: torch.nn.Module,
     model: A PyTorch model to be tested.
     dataloader: A DataLoader instance for the model to be tested on.
     loss_fn: A PyTorch loss function to calculate loss on the test data.
-    device: A target device to compute on (e.g. "cuda" or "cpu").
+    : A target device to compute on (e.g. "cuda" or "cpu").
     Returns:
     A tuple of testing loss and testing accuracy metrics.
     In the form (test_loss, test_accuracy). For example:
@@ -106,7 +116,13 @@ def test_step(model: torch.nn.Module,
 
             # Calculate and accumulate accuracy
             test_pred_labels = test_pred_logits.argmax(dim=1)
-            test_acc += ((test_pred_labels == y).sum().item()/len(test_pred_labels))
+            y_class = torch.argmax(torch.softmax(y, dim=1), dim=1)
+
+            curr_train_acc = ((test_pred_labels == y_class).sum().item()/len(test_pred_labels))
+            test_acc += curr_train_acc
+
+            if (batch % 1000 == 0):
+                print(f"Epoch: {epoch} [{batch*len(test_pred_labels)}/{len(dataloader)*len(test_pred_labels)}] total_train_acc: {test_acc / (batch + 1)}")
 
     # Adjust metrics to get average loss and accuracy per batch 
     test_loss = test_loss / len(dataloader)
@@ -119,7 +135,8 @@ def train(model: torch.nn.Module,
           optimizer: torch.optim.Optimizer,
           loss_fn: torch.nn.Module,
           epochs: int,
-          device: torch.device) -> Dict[str, List]:
+          device: torch.device,
+          model_class) -> Dict[str, List]:
     """Trains and tests a PyTorch model.
     Passes a target PyTorch models through train_step() and test_step()
     functions for a number of epochs, training and testing the model
@@ -159,30 +176,79 @@ def train(model: torch.nn.Module,
 
     # Loop through training and testing steps for a number of epochs
     for epoch in tqdm(range(epochs)):
-        train_loss, train_acc = train_step(model=model,
-                                          dataloader=train_dataloader,
-                                          loss_fn=loss_fn,
-                                          optimizer=optimizer,
-                                          device=device)
-        test_loss, test_acc = test_step(model=model,
-          dataloader=test_dataloader,
-          loss_fn=loss_fn,
-          device=device)
+      train_loss, train_acc = train_step(model=model,
+                                        dataloader=train_dataloader,
+                                        loss_fn=loss_fn,
+                                        optimizer=optimizer,
+                                        device=device, epoch=epoch + 1)
+      test_loss, test_acc = test_step(model=model,
+        dataloader=test_dataloader,
+        loss_fn=loss_fn,
+        device=device,
+        epoch=epoch+1)
 
-        # Print out what's happening
-        print(
-          f"Epoch: {epoch+1} | "
-          f"train_loss: {train_loss:.4f} | "
-          f"train_acc: {train_acc:.4f} | "
-          f"test_loss: {test_loss:.4f} | "
-          f"test_acc: {test_acc:.4f}"
-        )
+      # Print out what's happening
+      print(
+        f"Epoch: {epoch+1} | "
+        f"train_loss: {train_loss:.4f} | "
+        f"train_acc: {train_acc:.4f} | "
+        f"test_loss: {test_loss:.4f} | "
+        f"test_acc: {test_acc:.4f}"
+      )
 
-        # Update results dictionary
-        results["train_loss"].append(train_loss)
-        results["train_acc"].append(train_acc)
-        results["test_loss"].append(test_loss)
-        results["test_acc"].append(test_acc)
+      # Update results dictionary
+      results["train_loss"].append(train_loss)
+      results["train_acc"].append(train_acc)
+      results["test_loss"].append(test_loss)
+      results["test_acc"].append(test_acc)
+
+      model_class.save_model()
+      print("Successfully saved")
+
+
 
     # Return the filled results at the end of the epochs
     return results
+
+
+def evaluate_step(model: torch.nn.Module, 
+              dataloader: torch.utils.data.DataLoader, 
+              device: torch.device
+              ) -> Tuple[float, float]:
+    """Tests a PyTorch model for a single epoch.
+    Turns a target PyTorch model to "eval" mode and then performs
+    a forward pass on a testing dataset.
+    Args:
+    model: A PyTorch model to be tested.
+    dataloader: A DataLoader instance for the model to be tested on.
+    loss_fn: A PyTorch loss function to calculate loss on the test data.
+    : A target device to compute on (e.g. "cuda" or "cpu").
+    Returns:
+    A tuple of testing loss and testing accuracy metrics.
+    In the form (test_loss, test_accuracy). For example:
+    (0.0223, 0.8985)
+    """
+    # Put model in eval mode
+    model.to(device)
+    model.eval() 
+
+    predicted_labels = []
+
+    # Turn on inference context manager
+    with torch.inference_mode():
+        # Loop through DataLoader batches
+        for batch, X in enumerate(dataloader):
+            # Send data to target device
+            # X = X.type(torch.float32)
+            # X = X.to(device, dtype=torch.float32)
+            X = X.to(device)
+
+            # 1. Forward pass
+            test_pred_logits = model(X)
+
+            # Calculate and accumulate accuracy
+            test_pred_labels = test_pred_logits.argmax(dim=1).item()
+
+            predicted_labels.append(test_pred_labels)
+
+    return predicted_labels

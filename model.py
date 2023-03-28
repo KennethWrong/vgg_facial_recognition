@@ -5,29 +5,29 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 import torch.backends.cudnn as cudnn
+import datetime
+import os
 
-class vgg_model:
+class model_manager:
     def __init__(self):
-        self.vgg16 = tv.models.vgg16(weights=tv.models.VGG16_Weights.IMAGENET1K_V1)
-        self.preprocess_layer = tv.transforms.Compose([
-            tv.transforms.Resize(256),
-            tv.transforms.CenterCrop(224),
-            tv.transforms.ToTensor(),
-            tv.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model = tv.models.resnet18(pretrained = True)
+        self.device = "cuda" if torch.cuda.is_available() else 'cpu'
+        self.device = torch.device(self.device)
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = torch.optim.Adam(self.vgg16.parameters(), lr=0.001)
-        self.set_up_model()
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
+        print(f"Cuda available: {torch.cuda.is_available()}, device_count: {torch.cuda.device_count()} curr_device: {self.device}")
+        # self.set_up_model()
+        self.set_up_resnset()
     
     def set_up_model(self):
-        self.vgg16 = self.vgg16.to(self.device)
+        self.model = self.model.to(self.device)
 
         # This is for freezing feature parameters 
-        for param in self.vgg16.features.parameters():
+        for param in self.model.features.parameters():
             param.requires_grad = False
         
-        self.vgg16.classifier = torch.nn.Sequential(
+        
+        self.model.classifier = torch.nn.Sequential(
             nn.Linear(in_features=25088, out_features=4096, bias=True),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.5, inplace=False),
@@ -35,10 +35,26 @@ class vgg_model:
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.5, inplace=False),
             nn.Linear(in_features=4096, out_features=100, bias=True),
+            nn.Softmax(dim=1),
         ).to(self.device)
-
-
-
     
-    def preprocess(self, image):
-        input_image = self.preprocess_layer(image)
+    def set_up_resnset(self):
+        self.model.fc = nn.Sequential(
+            nn.Linear(in_features=512, out_features=100)
+        )
+
+        for param in self.model.parameters():
+            param.requires_grad = True
+        
+        # self.model = self.model.float()
+    
+    def save_model(self):
+        today = datetime.datetime.now()
+        filename = today.strftime("%d-%m-%Y-%H-%M")
+
+        filename = "resnet18-weights"+"-"+filename
+        cwd = os.path.dirname(os.path.realpath(__file__))
+
+        weight_path = os.path.join(cwd, "weights", filename)
+
+        torch.save(self.model.state_dict(), weight_path)

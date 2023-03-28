@@ -1,3 +1,5 @@
 /data/test
 /data/train
 train.csv
+/weights
+/__pycache__
